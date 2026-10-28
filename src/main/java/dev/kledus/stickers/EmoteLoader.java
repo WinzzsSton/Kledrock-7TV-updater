@@ -36,12 +36,17 @@ import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
-/** Скачивает эмоуты из 7TV и собирает из них ресурспак со шрифтами (BitMap Font). */
+/**
+ * Скачивает эмоуты из 7TV и собирает ресурспак:
+ *  - font-режим: bitmap-шрифт kledus:stickers (первый кадр, статика)
+ *  - sprite-режим: анимированные спрайты в gui-атласе (экспериментально)
+ */
 public final class EmoteLoader {
 
     public static final String NAMESPACE = "kledus";
 
-    public record Emote(String name, String sprite, boolean animated, String charCode) {}
+    /** glyph - настоящий символ из Private Use Area (НЕ текст "\\uE000"). */
+    public record Emote(String name, String sprite, boolean animated, String glyph) {}
 
     public record Result(byte[] zip, Map<String, Emote> emotes) {}
 
@@ -69,13 +74,12 @@ public final class EmoteLoader {
 
     public Result build() throws Exception {
         FileConfiguration cfg = plugin.getConfig();
-        // Размер исходной картинки (чтобы не сломать память)
         int size = Math.max(8, cfg.getInt("sprite-size", 32));
         int maxFrames = Math.max(1, cfg.getInt("max-frames", 60));
 
-        // НАСТРОЙКИ РАЗМЕРА В ЧАТЕ (регулируйте здесь):
-        int fontHeight = 64; // Высота стикера (чем больше, тем крупнее в чате)
-        int fontAscent = 48; // Подъем (должен быть меньше height)
+        // Размер стикера в чате. Строка чата = 9px, большие значения налезают на соседние строки.
+        int fontHeight = Math.max(1, cfg.getInt("font-height", 9));
+        int fontAscent = Math.min(cfg.getInt("font-ascent", 8), fontHeight);
 
         String twitchId = cfg.getString("twitch-id", "").trim();
         if (twitchId.isEmpty()) {
@@ -101,7 +105,8 @@ public final class EmoteLoader {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
 
         try (ZipOutputStream zip = new ZipOutputStream(bos)) {
-            putEntry(zip, "pack.mcmeta", ("{\"pack\":{\"pack_format\":75,\"description\":\"KledusStickers 7TV\"}}").getBytes(StandardCharsets.UTF_8));
+            putEntry(zip, "pack.mcmeta",
+                    "{\"pack\":{\"pack_format\":75,\"description\":\"KledusStickers 7TV\"}}".getBytes(StandardCharsets.UTF_8));
 
             int charIndex = 0;
             for (JsonElement el : list) {
@@ -112,7 +117,10 @@ public final class EmoteLoader {
                         && e.getAsJsonObject("data").get("animated").getAsBoolean();
 
                 Decoded dec = fetchAndDecode(cacheDir, id, animatedFlag);
-                if (dec == null) continue;
+                if (dec == null) {
+                    plugin.getLogger().warning("Пропускаю эмоут " + name + " (" + id + ")");
+                    continue;
+                }
 
                 String sprite = name.toLowerCase().replaceAll("[^a-z0-9._-]", "_");
                 String base = sprite;
@@ -123,9 +131,11 @@ public final class EmoteLoader {
                 List<Integer> delays = limitDelays(dec, maxFrames);
                 boolean animated = frames.size() > 1;
 
-                BufferedImage out = new BufferedImage(size, size * frames.size(), BufferedImage.TYPE_INT_ARGB);
-                Graphics2D g = out.createGraphics();
+                // Вертикальная лента кадров size x (size * N)
+                BufferedImage strip = new BufferedImage(size, size * frames.size(), BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g = strip.createGraphics();
                 g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
                 for (int i = 0; i < frames.size(); i++) {
                     BufferedImage f = frames.get(i);
                     double scale = Math.min((double) size / f.getWidth(), (double) size / f.getHeight());
@@ -135,11 +145,9 @@ public final class EmoteLoader {
                 }
                 g.dispose();
 
-                ByteArrayOutputStream png = new ByteArrayOutputStream();
-                ImageIO.write(out, "png", png);
-                String path = "assets/" + NAMESPACE + "/textures/gui/sprites/" + sprite + ".png";
-                putEntry(zip, path, png.toByteArray());
-
+                // 1) sprite-режим: анимированная лента в gui-атласе
+                String spritePath = "assets/" + NAMESPACE + "/textures/gui/sprites/" + sprite + ".png";
+                putEntry(zip, spritePath, toPng(strip));
                 if (animated) {
                     StringBuilder sb = new StringBuilder("{\"animation\":{\"width\":" + size + ",\"height\":" + size + ",\"frames\":[");
                     for (int i = 0; i < frames.size(); i++) {
@@ -148,30 +156,41 @@ public final class EmoteLoader {
                         sb.append("{\"index\":").append(i).append(",\"time\":").append(ticks).append('}');
                     }
                     sb.append("]}}");
-                    putEntry(zip, path + ".mcmeta", sb.toString().getBytes(StandardCharsets.UTF_8));
+                    putEntry(zip, spritePath + ".mcmeta", sb.toString().getBytes(StandardCharsets.UTF_8));
                 }
 
-                String charCode = String.format("\\u%04X", 0xE000 + charIndex++);
+                // 2) font-режим: ТОЛЬКО первый кадр (шрифты не анимируются)
+                BufferedImage firstFrame = strip.getSubimage(0, 0, size, size);
+                putEntry(zip, "assets/" + NAMESPACE + "/textures/font/stickers/" + sprite + ".png", toPng(firstFrame));
+
+                // Настоящий символ из Private Use Area (U+E000...)
+                String glyph = String.valueOf((char) (0xE000 + charIndex++));
 
                 JsonObject provider = new JsonObject();
                 provider.addProperty("type", "bitmap");
-                provider.addProperty("file", NAMESPACE + ":textures/gui/sprites/" + sprite + ".png");
-                provider.addProperty("ascent", fontAscent); 
-                provider.addProperty("height", fontHeight); 
+                // путь считается от папки textures/ -> assets/kledus/textures/font/stickers/<sprite>.png
+                provider.addProperty("file", NAMESPACE + ":font/stickers/" + sprite + ".png");
+                provider.addProperty("ascent", fontAscent);
+                provider.addProperty("height", fontHeight);
                 JsonArray chars = new JsonArray();
-                chars.add(charCode);
+                chars.add(glyph);
                 provider.add("chars", chars);
                 fontProviders.add(provider);
 
-                emotes.put(name.toLowerCase(), new Emote(name, sprite, animated, charCode));
+                emotes.put(name.toLowerCase(), new Emote(name, sprite, animated, glyph));
             }
 
-            // Сохраняем наш собственный файл шрифта, чтобы не ломать default.json
             JsonObject root = new JsonObject();
             root.add("providers", fontProviders);
             putEntry(zip, "assets/" + NAMESPACE + "/font/stickers.json", root.toString().getBytes(StandardCharsets.UTF_8));
         }
         return new Result(bos.toByteArray(), emotes);
+    }
+
+    private static byte[] toPng(BufferedImage img) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ImageIO.write(img, "png", out);
+        return out.toByteArray();
     }
 
     private static void putEntry(ZipOutputStream zip, String name, byte[] data) throws IOException {
@@ -181,15 +200,24 @@ public final class EmoteLoader {
     }
 
     private Decoded fetchAndDecode(Path cacheDir, String id, boolean animated) {
-        String[] candidates = animated ? new String[]{"2x.gif", "3x.gif", "1x.gif"} : new String[]{"2x.png", "3x.png", "1x.png"};
+        String[] candidates = animated
+                ? new String[]{"2x.gif", "3x.gif", "1x.gif", "4x.gif"}
+                : new String[]{"2x.png", "3x.png", "1x.png", "2x.gif", "2x_static.png"};
         for (String file : candidates) {
             try {
                 Path cached = cacheDir.resolve(id + "_" + file);
-                byte[] bytes = Files.exists(cached) ? Files.readAllBytes(cached) : get("https://cdn.7tv.app/emote/" + id + "/" + file);
-                if (!Files.exists(cached)) Files.write(cached, bytes);
+                byte[] bytes;
+                if (Files.exists(cached)) {
+                    bytes = Files.readAllBytes(cached);
+                } else {
+                    bytes = get("https://cdn.7tv.app/emote/" + id + "/" + file);
+                    Files.write(cached, bytes);
+                }
                 Decoded d = decode(bytes);
                 if (d != null && !d.frames().isEmpty()) return d;
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                // пробуем следующий вариант
+            }
         }
         return null;
     }
@@ -216,7 +244,11 @@ public final class EmoteLoader {
                     h = Integer.parseInt(lsd.getAttribute("logicalScreenHeight"));
                 }
             }
-            if (w <= 0 || h <= 0) { BufferedImage f = reader.read(0); w = f.getWidth(); h = f.getHeight(); }
+            if (w <= 0 || h <= 0) {
+                BufferedImage f = reader.read(0);
+                w = f.getWidth();
+                h = f.getHeight();
+            }
             BufferedImage canvas = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
             List<BufferedImage> frames = new ArrayList<>();
             List<Integer> delays = new ArrayList<>();
@@ -241,10 +273,14 @@ public final class EmoteLoader {
                     cg.setComposite(AlphaComposite.Clear);
                     cg.fillRect(x, y, fr.getWidth(), fr.getHeight());
                     cg.dispose();
-                } else if (backup != null) { canvas = backup; }
+                } else if (backup != null) {
+                    canvas = backup;
+                }
             }
             return new Decoded(frames, delays);
-        } finally { reader.dispose(); }
+        } finally {
+            reader.dispose();
+        }
     }
 
     private static IIOMetadataNode child(IIOMetadataNode parent, String name) {
@@ -254,22 +290,29 @@ public final class EmoteLoader {
 
     private static BufferedImage copy(BufferedImage src) {
         BufferedImage c = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = c.createGraphics(); g.drawImage(src, 0, 0, null); g.dispose();
+        Graphics2D g = c.createGraphics();
+        g.drawImage(src, 0, 0, null);
+        g.dispose();
         return c;
     }
 
     private static List<BufferedImage> limit(Decoded d, int max) {
-        int n = d.frames().size(); if (n <= max) return d.frames();
-        int step = (int) Math.ceil(n / (double) max); List<BufferedImage> out = new ArrayList<>();
+        int n = d.frames().size();
+        if (n <= max) return d.frames();
+        int step = (int) Math.ceil(n / (double) max);
+        List<BufferedImage> out = new ArrayList<>();
         for (int i = 0; i < n; i += step) out.add(d.frames().get(i));
         return out;
     }
 
     private static List<Integer> limitDelays(Decoded d, int max) {
-        int n = d.frames().size(); if (n <= max) return d.delaysMs();
-        int step = (int) Math.ceil(n / (double) max); List<Integer> out = new ArrayList<>();
+        int n = d.frames().size();
+        if (n <= max) return d.delaysMs();
+        int step = (int) Math.ceil(n / (double) max);
+        List<Integer> out = new ArrayList<>();
         for (int i = 0; i < n; i += step) {
-            int sum = 0; for (int j = i; j < Math.min(n, i + step); j++) sum += d.delaysMs().get(j);
+            int sum = 0;
+            for (int j = i; j < Math.min(n, i + step); j++) sum += d.delaysMs().get(j);
             out.add(sum);
         }
         return out;

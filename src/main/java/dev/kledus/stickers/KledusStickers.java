@@ -8,6 +8,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextReplacementConfig;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.object.ObjectContents;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -20,6 +21,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.util.List;
 import java.util.Map;
@@ -31,7 +33,9 @@ import java.util.regex.Pattern;
 public final class KledusStickers extends JavaPlugin implements Listener {
 
     private static final UUID PACK_ID = UUID.nameUUIDFromBytes("kledus-stickers-pack".getBytes());
-    private static final String HARDCODED_HOST = "87.228.56.155"; // Ваш IP
+    private static final String DEFAULT_HOST = "87.228.56.155";
+    private static final Key ATLAS = Key.key("minecraft", "gui");
+    private static final Key FONT = Key.key(EmoteLoader.NAMESPACE, "stickers");
 
     private volatile Map<String, Emote> emotes = Map.of();
     private volatile byte[] packBytes;
@@ -52,6 +56,8 @@ public final class KledusStickers extends JavaPlugin implements Listener {
         if (server != null) server.stop(0);
     }
 
+    // ---------------- загрузка и пак ----------------
+
     private void reloadEmotes(CommandSender who) {
         reloadConfig();
         Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
@@ -60,6 +66,10 @@ public final class KledusStickers extends JavaPlugin implements Listener {
                 byte[] hash = MessageDigest.getInstance("SHA-1").digest(r.zip());
                 StringBuilder hex = new StringBuilder();
                 for (byte b : hash) hex.append(String.format("%02x", b));
+
+                // Копия пака на диск: можно вручную влить в свой основной пак
+                getDataFolder().mkdirs();
+                Files.write(getDataFolder().toPath().resolve("pack.zip"), r.zip());
 
                 emotes = r.emotes();
                 packBytes = r.zip();
@@ -106,13 +116,15 @@ public final class KledusStickers extends JavaPlugin implements Listener {
     }
 
     private void sendPack(Player p) {
-        if (packBytes == null) return;
-        
-        // Используем захардкоженный IP
-        String url = "http://" + HARDCODED_HOST + ":" + getConfig().getInt("pack.port", 8765) + "/pack.zip?h=" + packHashHex;
-        
+        // pack.send: false -> ничего не отправляем (пак только лежит в plugins/KledusStickers/pack.zip)
+        if (!getConfig().getBoolean("pack.send", true) || packBytes == null) return;
+
+        String host = getConfig().getString("pack.host", DEFAULT_HOST);
+        if (host == null || host.isBlank() || host.equals("YOUR.SERVER.IP")) host = DEFAULT_HOST;
+
+        String url = "http://" + host + ":" + getConfig().getInt("pack.port", 8765) + "/pack.zip?h=" + packHashHex;
         p.addResourcePack(PACK_ID, url, packHash,
-                getConfig().getString("pack.prompt", "Stickers"),
+                Component.text(getConfig().getString("pack.prompt", "Stickers")),
                 getConfig().getBoolean("pack.force", false));
     }
 
@@ -121,10 +133,18 @@ public final class KledusStickers extends JavaPlugin implements Listener {
         sendPack(e.getPlayer());
     }
 
+    // ---------------- чат ----------------
+
     private Component spriteOf(Emote e) {
-        return Component.text(e.charCode())
-                .font(Key.key(EmoteLoader.NAMESPACE, "stickers"))
-                .hoverEvent(HoverEvent.showText(Component.text(":" + e.name() + ":", NamedTextColor.GRAY)));
+        Component c;
+        if ("sprite".equalsIgnoreCase(getConfig().getString("chat-mode", "font"))) {
+            // экспериментально: анимированный спрайт из gui-атласа
+            c = Component.object(ObjectContents.sprite(ATLAS, Key.key(EmoteLoader.NAMESPACE, e.sprite())));
+        } else {
+            // белый цвет, иначе цвет текста сообщения затонирует картинку
+            c = Component.text(e.glyph()).font(FONT).color(NamedTextColor.WHITE);
+        }
+        return c.hoverEvent(HoverEvent.showText(Component.text(":" + e.name() + ":", NamedTextColor.GRAY)));
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -145,6 +165,8 @@ public final class KledusStickers extends JavaPlugin implements Listener {
                 .build();
         event.message(event.message().replaceText(cfg));
     }
+
+    // ---------------- команды ----------------
 
     @Override
     public boolean onCommand(CommandSender s, Command c, String label, String[] a) {

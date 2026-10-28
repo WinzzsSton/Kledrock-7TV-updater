@@ -116,8 +116,10 @@ public final class KledusStickers extends JavaPlugin implements Listener {
             return;
         }
         String url = "http://" + host + ":" + getConfig().getInt("pack.port", 8765) + "/pack.zip?h=" + packHashHex;
+        
+        // ИСПРАВЛЕНО: Убран Component.text(), так как метод требует String.
         p.addResourcePack(PACK_ID, url, packHash,
-                Component.text(getConfig().getString("pack.prompt", "Stickers")),
+                getConfig().getString("pack.prompt", "Stickers"),
                 getConfig().getBoolean("pack.force", false));
     }
 
@@ -174,10 +176,15 @@ public final class KledusStickers extends JavaPlugin implements Listener {
                     s.sendMessage(Component.text("Стикеры ещё не загружены", NamedTextColor.RED));
                     return true;
                 }
-                // ИСПРАВЛЕНО ТУТ:
+                
+                // ИСПРАВЛЕНО: Более безопасная сборка компонента без прямых вызовов .append() к TextComponent
                 Component line = Component.text("Стикеры (пиши :имя:): ", NamedTextColor.GOLD);
                 for (Emote e : emotes.values()) {
-                    line = Component.text().append(line).append(spriteOf(e)).append(Component.text(" ")).build();
+                    line = Component.text()
+                            .append(line)
+                            .append(spriteOf(e))
+                            .append(Component.text(" "))
+                            .build();
                 }
                 s.sendMessage(line);
             }

@@ -70,7 +70,10 @@ public final class EmoteLoader {
     /** Долгая операция - вызывать только асинхронно. */
     public Result build() throws Exception {
         FileConfiguration cfg = plugin.getConfig();
-        int size = Math.max(8, cfg.getInt("sprite-size", 32));
+        
+        // ИСПРАВЛЕНО: Задаем размер 128 пикселей для того, чтобы стикеры были крупными в чате.
+        int size = 128; 
+        
         int maxFrames = Math.max(1, cfg.getInt("max-frames", 60));
 
         String twitchId = cfg.getString("twitch-id", "").trim();
@@ -226,7 +229,7 @@ public final class EmoteLoader {
 
             for (int i = 0; i < count; i++) {
                 BufferedImage fr = reader.read(i);
-                IIOMetadataNode root = (IIOMetadataNode) reader.getImageMetadata(i).getAsTree("javax_imageio_gif_image_1.0");
+                IIOMetadataNode root = (IIOMetadataNode) reader.getImageMetadata(i).getAsTree("javax.imageio.gif_image_1.0");
                 IIOMetadataNode desc = child(root, "ImageDescriptor");
                 IIOMetadataNode gce = child(root, "GraphicControlExtension");
                 int x = desc == null ? 0 : Integer.parseInt(desc.getAttribute("imageLeftPosition"));

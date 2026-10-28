@@ -8,7 +8,6 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextReplacementConfig;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.object.ObjectContents;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -32,8 +31,7 @@ import java.util.regex.Pattern;
 public final class KledusStickers extends JavaPlugin implements Listener {
 
     private static final UUID PACK_ID = UUID.nameUUIDFromBytes("kledus-stickers-pack".getBytes());
-    private static final Key ATLAS = Key.key("minecraft", "gui");
-
+    
     private volatile Map<String, Emote> emotes = Map.of();
     private volatile byte[] packBytes;
     private volatile byte[] packHash;
@@ -52,8 +50,6 @@ public final class KledusStickers extends JavaPlugin implements Listener {
     public void onDisable() {
         if (server != null) server.stop(0);
     }
-
-    // ---------------- загрузка и пак ----------------
 
     private void reloadEmotes(CommandSender who) {
         reloadConfig();
@@ -116,8 +112,6 @@ public final class KledusStickers extends JavaPlugin implements Listener {
             return;
         }
         String url = "http://" + host + ":" + getConfig().getInt("pack.port", 8765) + "/pack.zip?h=" + packHashHex;
-        
-        // ИСПРАВЛЕНО: Убран Component.text(), так как метод требует String.
         p.addResourcePack(PACK_ID, url, packHash,
                 getConfig().getString("pack.prompt", "Stickers"),
                 getConfig().getBoolean("pack.force", false));
@@ -128,10 +122,10 @@ public final class KledusStickers extends JavaPlugin implements Listener {
         sendPack(e.getPlayer());
     }
 
-    // ---------------- чат ----------------
-
+    // --- ИЗМЕНЕНИЕ ЗДЕСЬ: Теперь используем сгенерированный шрифт ---
     private Component spriteOf(Emote e) {
-        return Component.object(ObjectContents.sprite(ATLAS, Key.key(EmoteLoader.NAMESPACE, e.sprite())))
+        return Component.text(e.charCode())
+                .font(Key.key(EmoteLoader.NAMESPACE, "default"))
                 .hoverEvent(HoverEvent.showText(Component.text(":" + e.name() + ":", NamedTextColor.GRAY)));
     }
 
@@ -154,8 +148,6 @@ public final class KledusStickers extends JavaPlugin implements Listener {
         event.message(event.message().replaceText(cfg));
     }
 
-    // ---------------- команды ----------------
-
     @Override
     public boolean onCommand(CommandSender s, Command c, String label, String[] a) {
         String sub = a.length == 0 ? "list" : a[0].toLowerCase();
@@ -176,15 +168,9 @@ public final class KledusStickers extends JavaPlugin implements Listener {
                     s.sendMessage(Component.text("Стикеры ещё не загружены", NamedTextColor.RED));
                     return true;
                 }
-                
-                // ИСПРАВЛЕНО: Более безопасная сборка компонента без прямых вызовов .append() к TextComponent
                 Component line = Component.text("Стикеры (пиши :имя:): ", NamedTextColor.GOLD);
                 for (Emote e : emotes.values()) {
-                    line = Component.text()
-                            .append(line)
-                            .append(spriteOf(e))
-                            .append(Component.text(" "))
-                            .build();
+                    line = line.append(spriteOf(e)).append(Component.text(" "));
                 }
                 s.sendMessage(line);
             }

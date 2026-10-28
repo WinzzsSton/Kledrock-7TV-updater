@@ -31,7 +31,8 @@ import java.util.regex.Pattern;
 public final class KledusStickers extends JavaPlugin implements Listener {
 
     private static final UUID PACK_ID = UUID.nameUUIDFromBytes("kledus-stickers-pack".getBytes());
-    
+    private static final String HARDCODED_HOST = "87.228.56.155"; // Ваш IP
+
     private volatile Map<String, Emote> emotes = Map.of();
     private volatile byte[] packBytes;
     private volatile byte[] packHash;
@@ -106,12 +107,10 @@ public final class KledusStickers extends JavaPlugin implements Listener {
 
     private void sendPack(Player p) {
         if (packBytes == null) return;
-        String host = getConfig().getString("pack.host", "");
-        if (host.isBlank() || host.equals("YOUR.SERVER.IP")) {
-            getLogger().warning("Укажи pack.host в config.yml (публичный IP/домен сервера)!");
-            return;
-        }
-        String url = "http://" + host + ":" + getConfig().getInt("pack.port", 8765) + "/pack.zip?h=" + packHashHex;
+        
+        // Используем захардкоженный IP
+        String url = "http://" + HARDCODED_HOST + ":" + getConfig().getInt("pack.port", 8765) + "/pack.zip?h=" + packHashHex;
+        
         p.addResourcePack(PACK_ID, url, packHash,
                 getConfig().getString("pack.prompt", "Stickers"),
                 getConfig().getBoolean("pack.force", false));
@@ -122,10 +121,9 @@ public final class KledusStickers extends JavaPlugin implements Listener {
         sendPack(e.getPlayer());
     }
 
-    // --- ИЗМЕНЕНИЕ ЗДЕСЬ: Теперь используем сгенерированный шрифт ---
     private Component spriteOf(Emote e) {
         return Component.text(e.charCode())
-                .font(Key.key(EmoteLoader.NAMESPACE, "default"))
+                .font(Key.key(EmoteLoader.NAMESPACE, "stickers"))
                 .hoverEvent(HoverEvent.showText(Component.text(":" + e.name() + ":", NamedTextColor.GRAY)));
     }
 

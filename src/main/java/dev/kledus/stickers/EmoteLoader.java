@@ -41,7 +41,6 @@ public final class EmoteLoader {
 
     public static final String NAMESPACE = "kledus";
 
-    // В record Emote добавляем символ (String), чтобы знать, как его выводить
     public record Emote(String name, String sprite, boolean animated, String charCode) {}
 
     public record Result(byte[] zip, Map<String, Emote> emotes) {}
@@ -70,13 +69,13 @@ public final class EmoteLoader {
 
     public Result build() throws Exception {
         FileConfiguration cfg = plugin.getConfig();
-        // Используем оригинальный размер 32 для картинок (чтобы не сломать память)
+        // Размер исходной картинки (чтобы не сломать память)
         int size = Math.max(8, cfg.getInt("sprite-size", 32));
         int maxFrames = Math.max(1, cfg.getInt("max-frames", 60));
 
-        // НАСТРОЙКИ РАЗМЕРА В ЧАТЕ:
-        int fontHeight = 64; // Высота стикера в пикселях (чем больше, тем крупнее)
-        int fontAscent = 48; // Подъем над строкой (должен быть меньше height)
+        // НАСТРОЙКИ РАЗМЕРА В ЧАТЕ (регулируйте здесь):
+        int fontHeight = 64; // Высота стикера (чем больше, тем крупнее в чате)
+        int fontAscent = 48; // Подъем (должен быть меньше height)
 
         String twitchId = cfg.getString("twitch-id", "").trim();
         if (twitchId.isEmpty()) {
@@ -98,7 +97,7 @@ public final class EmoteLoader {
 
         Map<String, Emote> emotes = new LinkedHashMap<>();
         Set<String> usedSprites = new HashSet<>();
-        JsonArray fontProviders = new JsonArray(); // Массив для будущего default.json
+        JsonArray fontProviders = new JsonArray();
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
 
         try (ZipOutputStream zip = new ZipOutputStream(bos)) {
@@ -152,10 +151,8 @@ public final class EmoteLoader {
                     putEntry(zip, path + ".mcmeta", sb.toString().getBytes(StandardCharsets.UTF_8));
                 }
 
-                // Генерируем юникод-символ для шрифта (начиная с \uE000)
                 String charCode = String.format("\\u%04X", 0xE000 + charIndex++);
 
-                // Создаем провайдер шрифта
                 JsonObject provider = new JsonObject();
                 provider.addProperty("type", "bitmap");
                 provider.addProperty("file", NAMESPACE + ":textures/gui/sprites/" + sprite + ".png");
@@ -169,10 +166,10 @@ public final class EmoteLoader {
                 emotes.put(name.toLowerCase(), new Emote(name, sprite, animated, charCode));
             }
 
-            // Сохраняем default.json
+            // Сохраняем наш собственный файл шрифта, чтобы не ломать default.json
             JsonObject root = new JsonObject();
             root.add("providers", fontProviders);
-            putEntry(zip, "assets/minecraft/font/default.json", root.toString().getBytes(StandardCharsets.UTF_8));
+            putEntry(zip, "assets/" + NAMESPACE + "/font/stickers.json", root.toString().getBytes(StandardCharsets.UTF_8));
         }
         return new Result(bos.toByteArray(), emotes);
     }

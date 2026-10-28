@@ -174,9 +174,10 @@ public final class KledusStickers extends JavaPlugin implements Listener {
                     s.sendMessage(Component.text("Стикеры ещё не загружены", NamedTextColor.RED));
                     return true;
                 }
+                // ИСПРАВЛЕНО ТУТ:
                 Component line = Component.text("Стикеры (пиши :имя:): ", NamedTextColor.GOLD);
                 for (Emote e : emotes.values()) {
-                    line = line.append(spriteOf(e)).append(Component.space());
+                    line = Component.text().append(line).append(spriteOf(e)).append(Component.text(" ")).build();
                 }
                 s.sendMessage(line);
             }

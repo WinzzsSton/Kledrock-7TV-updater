@@ -1,0 +1,17 @@
+name: KledusStickers
+version: 1.0.0
+main: dev.kledus.stickers.KledusStickers
+api-version: '1.21'
+description: 7TV stickers (incl. animated) from KledusOfficial in chat
+commands:
+  stickers:
+    description: List / reload stickers
+    usage: /stickers <list|reload|pack>
+    aliases: [ks]
+permissions:
+  kledusstickers.use:
+    description: Use stickers in chat
+    default: true
+  kledusstickers.admin:
+    description: Reload stickers
+    default: op

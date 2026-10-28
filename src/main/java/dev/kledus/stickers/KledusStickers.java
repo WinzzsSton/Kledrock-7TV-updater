@@ -124,7 +124,7 @@ public final class KledusStickers extends JavaPlugin implements Listener {
 
         String url = "http://" + host + ":" + getConfig().getInt("pack.port", 8765) + "/pack.zip?h=" + packHashHex;
         p.addResourcePack(PACK_ID, url, packHash,
-                Component.text(getConfig().getString("pack.prompt", "Stickers")),
+                getConfig().getString("pack.prompt", "Stickers"),
                 getConfig().getBoolean("pack.force", false));
     }
 
